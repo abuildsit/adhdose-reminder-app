@@ -77,6 +77,9 @@ export default function Index() {
   const notificationListener = useRef<any>(null);
   const responseListener = useRef<any>(null);
 
+  // Add a new state for snooze minutes
+  const [snoozeMinutes, setSnoozeMinutes] = useState<number>(4);
+
   // Load saved data on app start
   useEffect(() => {
     loadSavedData();
@@ -303,7 +306,7 @@ export default function Index() {
     }
   };
 
-  // User took medication, schedule next dose
+  // User took medication, schedule next dose from scheduled time
   const handleMedicationTaken = async () => {
     try {
       // Cancel current reminders
@@ -315,6 +318,24 @@ export default function Index() {
       await scheduleNextDose(nextDose);
     } catch (error) {
       console.error('Error handling medication taken:', error);
+    }
+  };
+
+  // User took medication, schedule next dose from current time
+  const handleMedicationTakenFromNow = async () => {
+    try {
+      // Cancel current reminders
+      await Notifications.cancelAllScheduledNotificationsAsync();
+      
+      // Calculate interval in milliseconds
+      const intervalMs = (doseIntervalHours * 60 * 60 * 1000) + (doseIntervalMinutes * 60 * 1000);
+      
+      // Schedule next dose from current time
+      const now = new Date();
+      const nextDose = new Date(now.getTime() + intervalMs);
+      await scheduleNextDose(nextDose);
+    } catch (error) {
+      console.error('Error handling medication taken from now:', error);
     }
   };
 
@@ -340,12 +361,15 @@ export default function Index() {
   // User wants to snooze the reminder
   const handleSnooze = async (minutes: number = 4) => {
     try {
+      // Ensure minutes is at least 1
+      const snoozeMinutes = minutes <= 0 ? 4 : minutes;
+      
       // Cancel current reminders
       await Notifications.cancelAllScheduledNotificationsAsync();
       
       // Schedule a reminder for minutes from now
       const snoozeTime = new Date();
-      snoozeTime.setMinutes(snoozeTime.getMinutes() + minutes);
+      snoozeTime.setMinutes(snoozeTime.getMinutes() + snoozeMinutes);
       
       await Notifications.scheduleNotificationAsync({
         content: {
@@ -358,7 +382,7 @@ export default function Index() {
           categoryIdentifier: 'medication',
         },
         trigger: {
-          seconds: minutes * 60,
+          seconds: snoozeMinutes * 60,
           type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
         },
       });
@@ -544,28 +568,49 @@ export default function Index() {
           style={styles.actionButton}
           onPress={() => handleMedicationTaken()}
         >
-          <Text style={styles.buttonText}>Took Medication - Set Next Reminder</Text>
+          <Text style={styles.buttonText}>Taken - Interval from Scheduled Time</Text>
         </TouchableOpacity>
         
         <TouchableOpacity 
           style={styles.actionButton}
-          onPress={() => handleLastDoseForDay()}
+          onPress={() => handleMedicationTakenFromNow()}
         >
-          <Text style={styles.buttonText}>Last Dose for Today</Text>
+          <Text style={styles.buttonText}>Taken - Interval from Now</Text>
         </TouchableOpacity>
         
-        <TouchableOpacity 
-          style={styles.actionButton}
-          onPress={() => handleSnooze()}
-        >
-          <Text style={styles.buttonText}>Snooze (4 minutes)</Text>
-        </TouchableOpacity>
+        <View style={styles.snoozeContainer}>
+          <TouchableOpacity 
+            style={styles.snoozeButton}
+            onPress={() => handleSnooze(snoozeMinutes || 4)}
+          >
+            <Text style={styles.buttonText}>Snooze</Text>
+          </TouchableOpacity>
+          <View style={styles.snoozeInputContainer}>
+            <TextInput
+              style={styles.snoozeInput}
+              keyboardType="numeric"
+              value={snoozeMinutes.toString()}
+              onChangeText={(text) => {
+                if (text === '') {
+                  setSnoozeMinutes(0);
+                } else {
+                  const value = parseInt(text);
+                  if (!isNaN(value)) {
+                     setSnoozeMinutes(value);
+                  }
+                }
+              }}
+              maxLength={3}
+            />
+            <Text style={styles.snoozeInputLabel}>min</Text>
+          </View>
+        </View>
         
         <TouchableOpacity 
           style={[styles.actionButton, styles.cancelButton]}
-          onPress={() => handleCancelReminders()}
+          onPress={() => handleLastDoseForDay()}
         >
-          <Text style={styles.buttonText}>Cancel All Reminders</Text>
+          <Text style={styles.buttonText}>No More Reminders Today</Text>
         </TouchableOpacity>
         
         <TouchableOpacity 
@@ -685,5 +730,38 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     backgroundColor: '#FF3B30',
-  }
+  },
+  snoozeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    width: '100%',
+  },
+  snoozeInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '30%',
+    marginRight: 10,
+  },
+  snoozeInput: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 5,
+    padding: 10,
+    fontSize: 16,
+    flex: 1,
+    textAlign: 'center',
+  },
+  snoozeInputLabel: {
+    marginLeft: 5,
+    fontSize: 16,
+  },
+  snoozeButton: {
+    backgroundColor: '#007AFF',
+    borderRadius: 5,
+    padding: 15,
+    flex: 1,
+    alignItems: 'center',
+    marginRight: 10,
+  },
 });
