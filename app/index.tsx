@@ -366,8 +366,8 @@ export default function Index() {
       // Schedule reminders every 2 minutes for up to 1 hour (30 reminders max)
       for (let i = 1; i <= 30; i++) {
         const reminderTime = new Date(initialDoseTime);
-        // reminderTime.setMinutes(reminderTime.getMinutes() + (i * 2));
-        reminderTime.setSeconds(reminderTime.getSeconds() + (i * 15));
+        reminderTime.setMinutes(reminderTime.getMinutes() + (i * 2));
+        // reminderTime.setSeconds(reminderTime.getSeconds() + (i * 15));
 
         // Calculate seconds until scheduled time
         const scheduledTime = (reminderTime.getTime() - now.getTime()) / 1000;
