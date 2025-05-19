@@ -68,11 +68,14 @@ export default function Index() {
   // Setup state
   const [firstDoseTime, setFirstDoseTime] = useState<Date>(new Date());
   const [showTimePicker, setShowTimePicker] = useState<boolean>(false);
+  const [showTakenTimePicker, setShowTakenTimePicker] = useState<boolean>(false);
+  const [showNextSchedulePicker, setShowNextSchedulePicker] = useState<boolean>(false);
   const [doseIntervalHours, setDoseIntervalHours] = useState<number>(0); // Default 0 hours
   const [doseIntervalMinutes, setDoseIntervalMinutes] = useState<number>(1); // Default 1 minute
   
   // Notification state
   const [nextDoseTime, setNextDoseTime] = useState<Date | null>(null);
+  const [nextReminderTime, setNextReminderTime] = useState<Date | null>(null);
   const [notification, setNotification] = useState<Notifications.Notification | undefined>(undefined);
   const notificationListener = useRef<any>(null);
   const responseListener = useRef<any>(null);
@@ -80,13 +83,93 @@ export default function Index() {
   // Add a new state for snooze minutes
   const [snoozeMinutes, setSnoozeMinutes] = useState<number>(4);
 
+  // Add new function to check and update next dose time
+  const checkAndUpdateNextDoseTime = async () => {
+    try {
+      if (!nextDoseTime) return;
+
+      const now = new Date();
+      const nextDose = new Date(nextDoseTime);
+
+      // If next dose is in the past, update it to today's first dose time
+      if (nextDose.getTime() < now.getTime()) {
+        // Create new date for today using the user's configured first dose time
+        const newNextDose = new Date();
+        newNextDose.setHours(firstDoseTime.getHours());
+        newNextDose.setMinutes(firstDoseTime.getMinutes());
+        newNextDose.setSeconds(0);
+        newNextDose.setMilliseconds(0);
+
+        // If the first dose time has already passed today, schedule for tomorrow
+        if (newNextDose.getTime() < now.getTime()) {
+          newNextDose.setDate(newNextDose.getDate() + 1);
+        }
+
+        // Update the next dose time
+        await scheduleNextDose(newNextDose);
+        console.log('Updated next dose time to first dose time:', newNextDose);
+      }
+    } catch (error) {
+      console.error('Error checking and updating next dose time:', error);
+    }
+  };
+
+  // Schedule daily check at 12:01 AM
+  const scheduleDailyCheck = async () => {
+    try {
+      // Cancel any existing daily check notifications
+      await Notifications.cancelScheduledNotificationAsync('daily-check');
+
+      // Calculate time until next 12:01 AM
+      const now = new Date();
+      const nextCheck = new Date();
+      nextCheck.setHours(0, 1, 0, 0); // Set to 12:01 AM
+      
+      // If it's already past 12:01 AM, schedule for tomorrow
+      if (now.getTime() >= nextCheck.getTime()) {
+        nextCheck.setDate(nextCheck.getDate() + 1);
+      }
+
+      // Calculate seconds until next check
+      const secondsUntilCheck = Math.floor((nextCheck.getTime() - now.getTime()) / 1000);
+
+      // Schedule the daily check notification
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: "Daily Check",
+          body: "Checking medication schedule",
+          data: { type: 'daily_check' },
+        },
+        trigger: {
+          seconds: secondsUntilCheck,
+          repeats: true,
+          type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+        },
+        identifier: 'daily-check'
+      });
+
+      console.log('Scheduled daily check for:', nextCheck);
+    } catch (error) {
+      console.error('Error scheduling daily check:', error);
+    }
+  };
+
   // Load saved data on app start
   useEffect(() => {
     loadSavedData();
     setupNotifications();
+    scheduleDailyCheck();
+
+    // Add listener for daily check notification
+    const dailyCheckListener = Notifications.addNotificationReceivedListener(notification => {
+      if (notification.request.content.data?.type === 'daily_check') {
+        checkAndUpdateNextDoseTime();
+      }
+    });
 
     return () => {
       cleanup();
+      Notifications.removeNotificationSubscription(dailyCheckListener);
     };
   }, []);
 
@@ -107,7 +190,11 @@ export default function Index() {
           setDoseIntervalHours(hours);
           setDoseIntervalMinutes(minutes);
         }
-        if (savedNextDoseTime) setNextDoseTime(new Date(savedNextDoseTime));
+        if (savedNextDoseTime) {
+          const nextDose = new Date(savedNextDoseTime);
+          setNextDoseTime(nextDose);
+          setNextReminderTime(nextDose); // Initialize reminder time to match dose time
+        }
         
         setIsSetupComplete(true);
       }
@@ -120,6 +207,9 @@ export default function Index() {
 
   // Set up notification listeners
   const setupNotifications = async () => {
+    // Clear any existing notifications when app opens
+    await Notifications.dismissAllNotificationsAsync();
+    
     // Request notification permissions
     await registerForPushNotificationsAsync();
 
@@ -184,18 +274,29 @@ export default function Index() {
   // Complete the initial setup
   const completeSetup = async () => {
     try {
+      // Check if first dose time is earlier than current time
+      const now = new Date();
+      let adjustedFirstDoseTime = new Date(firstDoseTime);
+      
+      // If first dose time is earlier than current time, schedule for tomorrow
+      if (adjustedFirstDoseTime.getTime() < now.getTime()) {
+        adjustedFirstDoseTime.setDate(adjustedFirstDoseTime.getDate() + 1);
+      }
+      
       // Save setup data
       await AsyncStorage.setItem(STORAGE_KEYS.SETUP_COMPLETE, 'true');
-      await AsyncStorage.setItem(STORAGE_KEYS.FIRST_DOSE_TIME, firstDoseTime.toISOString());
+      await AsyncStorage.setItem(STORAGE_KEYS.FIRST_DOSE_TIME, adjustedFirstDoseTime.toISOString());
       await AsyncStorage.setItem(STORAGE_KEYS.DOSE_INTERVAL, `${doseIntervalHours}:${doseIntervalMinutes}`);
       
       // Schedule the first notification
-      const nextDose = calculateNextDoseTime(firstDoseTime, 0);
+      const nextDose = calculateNextDoseTime(adjustedFirstDoseTime, 0);
       await scheduleNextDose(nextDose);
       
       // Update app state
       setIsSetupComplete(true);
       setNextDoseTime(nextDose);
+      setNextReminderTime(nextDose);
+      setFirstDoseTime(adjustedFirstDoseTime); // Update the displayed first dose time
     } catch (error) {
       console.error('Error saving setup data:', error);
     }
@@ -215,25 +316,34 @@ export default function Index() {
       // Cancel existing notifications
       await Notifications.cancelAllScheduledNotificationsAsync();
       
-      // Save the next dose time
+      // Save the next dose time and set reminder time to match
       await AsyncStorage.setItem(STORAGE_KEYS.NEXT_DOSE_TIME, doseTime.toISOString());
       setNextDoseTime(doseTime);
+      setNextReminderTime(doseTime);
       
-      // Schedule notification
-      const scheduledTime = new Date(doseTime.getTime() - new Date().getTime()).getTime() / 1000;
+      // Get current time
+      const now = new Date();
       
+      // Determine if dose time is in the past
+      const isPastDue = doseTime.getTime() < now.getTime();
+      
+      // Calculate seconds until scheduled time
+      const scheduledTime = (doseTime.getTime() - now.getTime()) / 1000;
+      
+      // Schedule main notification
       await Notifications.scheduleNotificationAsync({
         content: {
-          title: "Medication Reminder",
-          body: "It's time to take your medication",
+          title: isPastDue ? "TAKE NOW: Medication Reminder" : "Medication Reminder",
+          body: isPastDue ? "Your medication is past due - please take now" : "It's time to take your medication",
           data: {
             type: 'medication_reminder',
             timestamp: doseTime.getTime(),
+            isPastDue: isPastDue
           },
           categoryIdentifier: 'medication',
         },
         trigger: {
-          seconds: scheduledTime > 0 ? scheduledTime : 1,
+          seconds: scheduledTime > 0 ? scheduledTime : 1, // Schedule immediately if in past
           type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
         },
       });
@@ -241,7 +351,7 @@ export default function Index() {
       // Schedule repeating reminder (every 2 minutes)
       scheduleRepeatingReminders(doseTime);
       
-      console.log('Next dose scheduled for:', doseTime);
+      console.log('Next dose scheduled for:', doseTime, isPastDue ? '(Past Due)' : '');
     } catch (error) {
       console.error('Error scheduling notification:', error);
     }
@@ -250,30 +360,37 @@ export default function Index() {
   // Schedule repeating reminders (every 2 minutes) until user responds
   const scheduleRepeatingReminders = async (initialDoseTime: Date) => {
     try {
+      // Get current time once to ensure consistency
+      const now = new Date();
+      
       // Schedule reminders every 2 minutes for up to 1 hour (30 reminders max)
       for (let i = 1; i <= 30; i++) {
         const reminderTime = new Date(initialDoseTime);
-        reminderTime.setMinutes(reminderTime.getMinutes() + (i * 2));
+        // reminderTime.setMinutes(reminderTime.getMinutes() + (i * 2));
+        reminderTime.setSeconds(reminderTime.getSeconds() + (i * 15));
+
+        // Calculate seconds until scheduled time
+        const scheduledTime = (reminderTime.getTime() - now.getTime()) / 1000;
         
-        const scheduledTime = new Date(reminderTime.getTime() - new Date().getTime()).getTime() / 1000;
-        if (scheduledTime <= 0) continue; // Skip if time is in the past
-        
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: "REMINDER: Take your medication",
-            body: "You still need to take your medication",
-            data: {
-              type: 'medication_reminder_repeat',
-              timestamp: initialDoseTime.getTime(),
-              repeatCount: i,
+        // Schedule the reminder if it's in the future
+        if (scheduledTime > 0) {
+          await Notifications.scheduleNotificationAsync({
+            content: {
+              title: "REMINDER: Take your medication",
+              body: "You still need to take your medication",
+              data: {
+                type: 'medication_reminder_repeat',
+                timestamp: initialDoseTime.getTime(),
+                repeatCount: i
+              },
+              categoryIdentifier: 'medication',
             },
-            categoryIdentifier: 'medication',
-          },
-          trigger: {
-            seconds: scheduledTime,
-            type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-          },
-        });
+            trigger: {
+              seconds: scheduledTime,
+              type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+            },
+          });
+        }
       }
     } catch (error) {
       console.error('Error scheduling repeating reminders:', error);
@@ -313,8 +430,9 @@ export default function Index() {
       await Notifications.cancelAllScheduledNotificationsAsync();
       
       // Calculate and schedule next dose
-      const now = new Date();
-      const nextDose = calculateNextDoseTime(now);
+      // Use the scheduled (next dose) time (or fallback to "now" if nextDoseTime is null)
+      const baseTime = nextDoseTime || new Date();
+      const nextDose = calculateNextDoseTime(baseTime);
       await scheduleNextDose(nextDose);
     } catch (error) {
       console.error('Error handling medication taken:', error);
@@ -367,10 +485,12 @@ export default function Index() {
       // Cancel current reminders
       await Notifications.cancelAllScheduledNotificationsAsync();
       
-      // Schedule a reminder for minutes from now
-      const snoozeTime = new Date();
-      snoozeTime.setMinutes(snoozeTime.getMinutes() + snoozeMinutes);
+      // Calculate new reminder time
+      const newReminderTime = new Date();
+      newReminderTime.setMinutes(newReminderTime.getMinutes() + snoozeMinutes);
+      setNextReminderTime(newReminderTime);
       
+      // Schedule the snoozed notification
       await Notifications.scheduleNotificationAsync({
         content: {
           title: "Medication Reminder",
@@ -387,10 +507,12 @@ export default function Index() {
         },
       });
       
-      setNextDoseTime(snoozeTime);
-      await AsyncStorage.setItem(STORAGE_KEYS.NEXT_DOSE_TIME, snoozeTime.toISOString());
+      // Schedule repeating reminders starting from the original scheduled time
+      if (nextDoseTime) {
+        scheduleRepeatingReminders(nextDoseTime);
+      }
       
-      console.log('Reminder snoozed until:', snoozeTime);
+      console.log('Reminder snoozed until:', newReminderTime);
     } catch (error) {
       console.error('Error handling snooze:', error);
     }
@@ -402,8 +524,9 @@ export default function Index() {
       // Cancel all notifications
       await Notifications.cancelAllScheduledNotificationsAsync();
       
-      // Clear next dose time
+      // Clear next dose time and reminder time
       setNextDoseTime(null);
+      setNextReminderTime(null);
       await AsyncStorage.removeItem(STORAGE_KEYS.NEXT_DOSE_TIME);
       
       console.log('All reminders cancelled');
@@ -427,6 +550,7 @@ export default function Index() {
       setDoseIntervalHours(0);
       setDoseIntervalMinutes(1);
       setNextDoseTime(null);
+      setNextReminderTime(null);
       
       console.log('App reset to default state');
     } catch (error) {
@@ -439,6 +563,58 @@ export default function Index() {
     setShowTimePicker(false);
     if (selectedTime) {
       setFirstDoseTime(selectedTime);
+    }
+  };
+
+  // Handle medication taken at specific time
+  const handleMedicationTakenAtTime = async (takenTime: Date) => {
+    try {
+      // Cancel current reminders
+      await Notifications.cancelAllScheduledNotificationsAsync();
+      
+      // Calculate next dose from the taken time
+      const nextDose = calculateNextDoseTime(takenTime);
+      await scheduleNextDose(nextDose);
+      
+      console.log('Medication marked as taken at:', takenTime);
+    } catch (error) {
+      console.error('Error handling medication taken at time:', error);
+    }
+  };
+
+  // Handle time picker change for taken time
+  const onTakenTimeChange = (event: any, selectedTime?: Date) => {
+    setShowTakenTimePicker(false);
+    if (selectedTime) {
+      handleMedicationTakenAtTime(selectedTime);
+    }
+  };
+
+  // Handle setting next schedule time
+  const handleSetNextSchedule = async (selectedTime: Date) => {
+    try {
+      const now = new Date();
+      const scheduledTime = new Date(selectedTime);
+      
+      // If the selected time is in the past, schedule for tomorrow
+      if (scheduledTime.getTime() < now.getTime()) {
+        scheduledTime.setDate(scheduledTime.getDate() + 1);
+      }
+      
+      // Schedule the next dose
+      await scheduleNextDose(scheduledTime);
+      
+      console.log('Next schedule set to:', scheduledTime);
+    } catch (error) {
+      console.error('Error setting next schedule:', error);
+    }
+  };
+
+  // Handle time picker change for next schedule
+  const onNextScheduleTimeChange = (event: any, selectedTime?: Date) => {
+    setShowNextSchedulePicker(false);
+    if (selectedTime) {
+      handleSetNextSchedule(selectedTime);
     }
   };
 
@@ -562,6 +738,20 @@ export default function Index() {
             : 'No dose scheduled'}
         </Text>
       </View>
+
+      {nextReminderTime && nextReminderTime.getTime() !== nextDoseTime?.getTime() && (
+        <View style={[styles.infoSection, { backgroundColor: '#fff3cd' }]}>
+          <Text style={styles.label}>Next reminder:</Text>
+          <Text style={styles.infoText}>
+            {nextReminderTime.toLocaleString([], { 
+              hour: '2-digit', 
+              minute: '2-digit',
+              month: 'short',
+              day: 'numeric' 
+            })}
+          </Text>
+        </View>
+      )}
       
       <View style={styles.buttonContainer}>
         <TouchableOpacity 
@@ -577,34 +767,70 @@ export default function Index() {
         >
           <Text style={styles.buttonText}>Taken - Interval from Now</Text>
         </TouchableOpacity>
+
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={() => setShowTakenTimePicker(true)}
+        >
+          <Text style={styles.buttonText}>Taken at (Select Time)</Text>
+        </TouchableOpacity>
         
-        <View style={styles.snoozeContainer}>
-          <TouchableOpacity 
-            style={styles.snoozeButton}
-            onPress={() => handleSnooze(snoozeMinutes || 4)}
-          >
-            <Text style={styles.buttonText}>Snooze</Text>
-          </TouchableOpacity>
-          <View style={styles.snoozeInputContainer}>
-            <TextInput
-              style={styles.snoozeInput}
-              keyboardType="numeric"
-              value={snoozeMinutes.toString()}
-              onChangeText={(text) => {
-                if (text === '') {
-                  setSnoozeMinutes(0);
-                } else {
-                  const value = parseInt(text);
-                  if (!isNaN(value)) {
-                     setSnoozeMinutes(value);
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={() => setShowNextSchedulePicker(true)}
+        >
+          <Text style={styles.buttonText}>Set next schedule to</Text>
+        </TouchableOpacity>
+        
+        {showTakenTimePicker && (
+          <DateTimePicker
+            value={new Date()}
+            mode="time"
+            is24Hour={false}
+            onChange={onTakenTimeChange}
+            display="spinner"
+          />
+        )}
+
+        {showNextSchedulePicker && (
+          <DateTimePicker
+            value={new Date()}
+            mode="time"
+            is24Hour={false}
+            onChange={onNextScheduleTimeChange}
+            display="spinner"
+          />
+        )}
+        
+        {nextDoseTime && nextDoseTime.getTime() < new Date().getTime() && (
+          <View style={styles.snoozeContainer}>
+            <TouchableOpacity 
+              style={styles.snoozeButton}
+              onPress={() => handleSnooze(snoozeMinutes || 4)}
+            >
+              <Text style={styles.buttonText}>Snooze</Text>
+            </TouchableOpacity>
+            <View style={styles.snoozeInputContainer}>
+              <TextInput
+                style={styles.snoozeInput}
+                keyboardType="numeric"
+                value={snoozeMinutes.toString()}
+                onChangeText={(text) => {
+                  if (text === '') {
+                    setSnoozeMinutes(0);
+                  } else {
+                    const value = parseInt(text);
+                    if (!isNaN(value)) {
+                       setSnoozeMinutes(value);
+                    }
                   }
-                }
-              }}
-              maxLength={3}
-            />
-            <Text style={styles.snoozeInputLabel}>min</Text>
+                }}
+                maxLength={3}
+              />
+              <Text style={styles.snoozeInputLabel}>min</Text>
+            </View>
           </View>
-        </View>
+        )}
         
         <TouchableOpacity 
           style={[styles.actionButton, styles.cancelButton]}
