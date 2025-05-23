@@ -1,23 +1,28 @@
 {
   "expo": {
-    "name": "ADHDose",
-    "slug": "adhdose",
-    "version": "1.0.0",
+    // "name": "ADHDose",
+    // "slug": "adhdose",
+    "name": "ADHDose2",
+    "slug": "adhdose2",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "medreminder",
+    "scheme": "adhdose",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.abuildsit.MedReminder"
+      // "bundleIdentifier": "com.abuildsit.adhdose"
     },
     "android": {
+      "versionCode": 3,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.abuildsit.MedReminder"
+      "package": "com.abuildsit.adhdose2"
     },
     "web": {
       "bundler": "metro",
@@ -42,7 +47,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "81f2081e-7b0d-4213-95fd-43afe8f1552f"
+        "projectId": "8857b744-713a-4d64-882f-36190c0b9bfd"
       }
     },
     "owner": "abuildsit"
