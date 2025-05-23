@@ -60,6 +60,7 @@ const STORAGE_KEYS = {
   DOSE_INTERVAL: 'dose_interval',
   NEXT_DOSE_TIME: 'next_dose_time',
   ENABLE_DOSE_INTERVALS: 'enable_dose_intervals',
+  ENABLE_RECURRING_REMINDERS: 'enable_recurring_reminders',
 };
 
 export default function Index() {
@@ -67,6 +68,7 @@ export default function Index() {
   const [isSetupComplete, setIsSetupComplete] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [enableDoseIntervals, setEnableDoseIntervals] = useState<boolean>(true);
+  const [enableRecurringReminders, setEnableRecurringReminders] = useState<boolean>(true);
   const [isUpdatingSetup, setIsUpdatingSetup] = useState<boolean>(false);
 
   // Setup state
@@ -190,6 +192,7 @@ export default function Index() {
         const savedDoseInterval = await AsyncStorage.getItem(STORAGE_KEYS.DOSE_INTERVAL);
         const savedNextDoseTime = await AsyncStorage.getItem(STORAGE_KEYS.NEXT_DOSE_TIME);
         const savedEnableDoseIntervals = await AsyncStorage.getItem(STORAGE_KEYS.ENABLE_DOSE_INTERVALS);
+        const savedEnableRecurringReminders = await AsyncStorage.getItem(STORAGE_KEYS.ENABLE_RECURRING_REMINDERS);
         
         if (savedFirstDoseTime) setFirstDoseTime(new Date(savedFirstDoseTime));
         if (savedDoseInterval) {
@@ -206,6 +209,9 @@ export default function Index() {
         }
         if (savedEnableDoseIntervals !== null) {
           setEnableDoseIntervals(savedEnableDoseIntervals === 'true');
+        }
+        if (savedEnableRecurringReminders !== null) {
+          setEnableRecurringReminders(savedEnableRecurringReminders === 'true');
         }
         
         setIsSetupComplete(true);
@@ -307,6 +313,7 @@ export default function Index() {
       await AsyncStorage.setItem(STORAGE_KEYS.FIRST_DOSE_TIME, adjustedFirstDoseTime.toISOString());
       await AsyncStorage.setItem(STORAGE_KEYS.DOSE_INTERVAL, `${totalHours}:${totalMinutes}`);
       await AsyncStorage.setItem(STORAGE_KEYS.ENABLE_DOSE_INTERVALS, enableDoseIntervals.toString());
+      await AsyncStorage.setItem(STORAGE_KEYS.ENABLE_RECURRING_REMINDERS, enableRecurringReminders.toString());
       
       // Schedule the first notification
       const nextDose = calculateNextDoseTime(adjustedFirstDoseTime, 0);
@@ -383,6 +390,11 @@ export default function Index() {
   // Schedule repeating reminders (every 2 minutes) until user responds
   const scheduleRepeatingReminders = async (initialDoseTime: Date) => {
     try {
+      // If recurring reminders are disabled, don't schedule any
+      if (!enableRecurringReminders) {
+        return;
+      }
+
       // Get current time once to ensure consistency
       const now = new Date();
       
@@ -390,7 +402,6 @@ export default function Index() {
       for (let i = 1; i <= 30; i++) {
         const reminderTime = new Date(initialDoseTime);
         reminderTime.setMinutes(reminderTime.getMinutes() + (i * 2));
-        // reminderTime.setSeconds(reminderTime.getSeconds() + (i * 15));
 
         // Calculate seconds until scheduled time
         const scheduledTime = (reminderTime.getTime() - now.getTime()) / 1000;
@@ -718,7 +729,25 @@ export default function Index() {
 
         <View style={styles.setupSection}>
           <View style={styles.toggleContainer}>
-            <Text style={styles.label}>Enable Dose Intervals</Text>
+            <View>
+              <Text style={styles.label}>Enable Recurring Reminders</Text>
+              <Text style={styles.toggleDescription}>Keeps reminding every 2 minutes</Text>
+            </View>
+            <Switch
+              value={enableRecurringReminders}
+              onValueChange={setEnableRecurringReminders}
+              trackColor={{ false: '#767577', true: '#4A35A7' }}
+              thumbColor={enableRecurringReminders ? '#f4f3f4' : '#f4f3f4'}
+            />
+          </View>
+        </View>
+
+        <View style={styles.setupSection}>
+          <View style={styles.toggleContainer}>
+            <View>
+              <Text style={styles.label}>Enable Dose Intervals</Text>
+              <Text style={styles.toggleDescription}>Schedules your next reminder after each dose</Text>
+            </View>
             <Switch
               value={enableDoseIntervals}
               onValueChange={setEnableDoseIntervals}
@@ -733,77 +762,69 @@ export default function Index() {
             <Text style={styles.label}>Time between doses (HH:MM):</Text>
             <View style={styles.intervalContainer}>
               <View style={styles.intervalColumn}>
-                <View style={styles.intervalButtonContainer}>
-                  <TouchableOpacity 
-                    style={styles.intervalButton}
-                    onPress={() => adjustTensHours(true)}
-                  >
-                    <Text style={styles.intervalButtonText}>+</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={styles.intervalButton}
-                    onPress={() => adjustTensHours(false)}
-                  >
-                    <Text style={styles.intervalButtonText}>-</Text>
-                  </TouchableOpacity>
-                </View>
+                <TouchableOpacity 
+                  style={styles.intervalButton}
+                  onPress={() => adjustTensHours(true)}
+                >
+                  <Text style={styles.intervalButtonText}>+</Text>
+                </TouchableOpacity>
                 <Text style={styles.intervalDigit}>{doseIntervalTensHours}</Text>
+                <TouchableOpacity 
+                  style={styles.intervalButton}
+                  onPress={() => adjustTensHours(false)}
+                >
+                  <Text style={styles.intervalButtonText}>-</Text>
+                </TouchableOpacity>
               </View>
 
               <View style={styles.intervalColumn}>
-                <View style={styles.intervalButtonContainer}>
-                  <TouchableOpacity 
-                    style={styles.intervalButton}
-                    onPress={() => adjustHours(true)}
-                  >
-                    <Text style={styles.intervalButtonText}>+</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={styles.intervalButton}
-                    onPress={() => adjustHours(false)}
-                  >
-                    <Text style={styles.intervalButtonText}>-</Text>
-                  </TouchableOpacity>
-                </View>
+                <TouchableOpacity 
+                  style={styles.intervalButton}
+                  onPress={() => adjustHours(true)}
+                >
+                  <Text style={styles.intervalButtonText}>+</Text>
+                </TouchableOpacity>
                 <Text style={styles.intervalDigit}>{doseIntervalHours ?? '-'}</Text>
+                <TouchableOpacity 
+                  style={styles.intervalButton}
+                  onPress={() => adjustHours(false)}
+                >
+                  <Text style={styles.intervalButtonText}>-</Text>
+                </TouchableOpacity>
               </View>
 
               <Text style={styles.intervalSeparator}>:</Text>
 
               <View style={styles.intervalColumn}>
-                <View style={styles.intervalButtonContainer}>
-                  <TouchableOpacity 
-                    style={styles.intervalButton}
-                    onPress={() => adjustTensMinutes(true)}
-                  >
-                    <Text style={styles.intervalButtonText}>+</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={styles.intervalButton}
-                    onPress={() => adjustTensMinutes(false)}
-                  >
-                    <Text style={styles.intervalButtonText}>-</Text>
-                  </TouchableOpacity>
-                </View>
+                <TouchableOpacity 
+                  style={styles.intervalButton}
+                  onPress={() => adjustTensMinutes(true)}
+                >
+                  <Text style={styles.intervalButtonText}>+</Text>
+                </TouchableOpacity>
                 <Text style={styles.intervalDigit}>{doseIntervalTensMinutes}</Text>
+                <TouchableOpacity 
+                  style={styles.intervalButton}
+                  onPress={() => adjustTensMinutes(false)}
+                >
+                  <Text style={styles.intervalButtonText}>-</Text>
+                </TouchableOpacity>
               </View>
 
               <View style={styles.intervalColumn}>
-                <View style={styles.intervalButtonContainer}>
-                  <TouchableOpacity 
-                    style={styles.intervalButton}
-                    onPress={() => adjustMinutes(true)}
-                  >
-                    <Text style={styles.intervalButtonText}>+</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={styles.intervalButton}
-                    onPress={() => adjustMinutes(false)}
-                  >
-                    <Text style={styles.intervalButtonText}>-</Text>
-                  </TouchableOpacity>
-                </View>
+                <TouchableOpacity 
+                  style={styles.intervalButton}
+                  onPress={() => adjustMinutes(true)}
+                >
+                  <Text style={styles.intervalButtonText}>+</Text>
+                </TouchableOpacity>
                 <Text style={styles.intervalDigit}>{doseIntervalMinutes ?? '-'}</Text>
+                <TouchableOpacity 
+                  style={styles.intervalButton}
+                  onPress={() => adjustMinutes(false)}
+                >
+                  <Text style={styles.intervalButtonText}>-</Text>
+                </TouchableOpacity>
               </View>
             </View>
           </View>
@@ -1040,10 +1061,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginHorizontal: 5,
   },
-  intervalButtonContainer: {
-    flexDirection: 'row',
-    marginBottom: 5,
-  },
   intervalButton: {
     backgroundColor: '#4A35A7',
     width: 30,
@@ -1051,7 +1068,7 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     justifyContent: 'center',
     alignItems: 'center',
-    marginHorizontal: 2,
+    marginVertical: 4,
   },
   intervalButtonText: {
     color: 'white',
@@ -1063,11 +1080,13 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     minWidth: 20,
     textAlign: 'center',
+    marginVertical: 4,
   },
   intervalSeparator: {
     fontSize: 24,
     marginHorizontal: 10,
     fontWeight: 'bold',
+    alignSelf: 'center',
   },
   primaryButton: {
     backgroundColor: '#4A35A7',
@@ -1154,5 +1173,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     width: '100%',
     paddingVertical: 10,
+  },
+  toggleDescription: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
   },
 });

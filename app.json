@@ -1,10 +1,8 @@
 {
   "expo": {
-    // "name": "ADHDose",
-    // "slug": "adhdose",
-    "name": "ADHDose2",
-    "slug": "adhdose2",
-    "version": "1.0.1",
+    "name": "ADHDose",
+    "slug": "adhdose",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "adhdose",
@@ -13,16 +11,15 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.abuildsit.MedReminder"
-      // "bundleIdentifier": "com.abuildsit.adhdose"
     },
     "android": {
-      "versionCode": 3,
+      "versionCode": 4,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.abuildsit.adhdose2"
+      "package": "com.abuildsit.adhdose"
     },
     "web": {
       "bundler": "metro",
